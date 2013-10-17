@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 char *argv0;
 
@@ -26,16 +27,21 @@ void
 usage(void)
 {
 	die("Usage: %s\n" \
-	    "music statistics\n\n" \
-	    "slm " VERSION " (c) 2013 Bobby Powers\n", argv0, argv0);
+	    "music statistics\n", argv0);
 }
 
 int
 main(int argc, char *const argv[])
 {
-	argv0 = argv[0];
-
-	usage();
+	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
+		char const* arg = argv[0];
+		if (!strcmp("-help", arg)) {
+			usage();
+		} else {
+			fprintf(stderr, "unknown arg '%s'\n", arg);
+			usage();
+		}
+	}
 
 	return 0;
 }
