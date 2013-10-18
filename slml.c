@@ -27,7 +27,7 @@ typedef struct {
 static void die(char const*, ...);
 static bool is_music_file(char const*);
 static ID3Header *id3_header(FILE*);
-static size_t parse_size(unsigned char const*);
+static size_t parse_id3_size(unsigned char const*);
 
 void
 die(char const *fmt, ...)
@@ -59,7 +59,7 @@ is_music_file(char const *fpath)
 }
 
 size_t
-parse_size(unsigned char const*b)
+parse_id3_size(unsigned char const*b)
 {
 	size_t n = 0;
 	for (size_t i = 0; i < 4; i++)
@@ -88,7 +88,7 @@ id3_header(FILE *f)
 	h->extended = (buf[5] & (1<<6)) != 0;
 	h->experimental = (buf[5] & (1<<5)) != 0;
 	h->footer = (buf[5] & (1<<4)) != 0;
-	h->len = parse_size(buf+6);
+	h->len = parse_id3_size(buf+6);
 
 	return h;
 err:
