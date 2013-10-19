@@ -141,8 +141,8 @@ id3_frame(FILE *f, size_t max_len)
 
 	size_t frame_len = id3_syncsafe(buf+4);
 	if (frame_len > max_len) {
-		fprintf(stderr, "expected %zu <= %zu\n", frame_len, max_len);
-		assert(false);
+		fprintf(stderr, "max: expected %zu <= %zu\n", frame_len, max_len);
+		//assert(false);
 		goto err;
 	}
 	fr = calloc(1, sizeof(*fr) + frame_len);
@@ -150,8 +150,8 @@ id3_frame(FILE *f, size_t max_len)
 	fr->size = frame_len;
 	n = fread(fr->data, 1, frame_len, f);
 	if (n < frame_len) {
-		fprintf(stderr, "expected %zu, got %zu\n", frame_len, n);
-		assert(false);
+		fprintf(stderr, "frame: expected %zu >= got %zu\n", frame_len, n);
+		//assert(false);
 		goto err;
 	}
 	return fr;
@@ -178,7 +178,11 @@ id3_parse(FILE *f)
 		if (!fr)
 			break;
 		id3_len -= ID3_HEADER_LEN + fr->size;
-		fprintf(stderr, "see %s (len:%d) (id3_len:%zu)\n", fr->id, fr->size, id3_len);
+		fprintf(stderr, "see %d.%d %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, fr->id, fr->size, id3_len);
+
+		if (strcmp(fr->id, "TALB") == 0)
+			fprintf(stderr, "album: %s\n", fr->data);
+
 		free(fr);
 	}
 out:
