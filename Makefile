@@ -1,9 +1,9 @@
 include config.mk
 
-SRC = slml.c
+SRC = slm.c
 OBJ = ${SRC:.c=.o}
 
-all: slml
+all: slm
 
 config.h:
 	cp config.def.h config.h
@@ -19,6 +19,6 @@ slml: ${OBJ}
 	@${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 clean:
-	rm -f slml ${OBJ}
+	rm -f slm ${OBJ}
 
 .PHONY: all clean
