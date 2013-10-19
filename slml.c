@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <assert.h>
 #include <ftw.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -14,6 +15,8 @@
 
 char *argv0;
 
+#define ID3_HEADER_LEN 10
+
 typedef struct {
 	int major; // version
 	int minor; // version
@@ -24,10 +27,28 @@ typedef struct {
 	int len;
 } ID3Header;
 
+typedef struct {
+	char id[5];
+	int size;
+	char data[];
+} ID3Frame;
+
+typedef struct {
+	char *artist;
+	char *album;
+	char *title;
+	int track;
+	int disk;
+	int n_disks;
+} Tags;
+
 static void die(char const*, ...);
+static void free_tags(Tags*);
 static bool is_music_file(char const*);
 static ID3Header *id3_header(FILE*);
-static size_t parse_id3_size(unsigned char const*);
+static size_t id3_syncsafe(unsigned char const*);
+static Tags *id3_parse(FILE *f);
+static Tags *atom_parse(FILE *f);
 
 void
 die(char const *fmt, ...)
@@ -39,6 +60,18 @@ die(char const *fmt, ...)
 	va_end(args);
 
 	exit(EXIT_FAILURE);
+}
+
+void
+free_tags(Tags *t)
+{
+	if (!t)
+		return;
+
+	free(t->artist);
+	free(t->album);
+	free(t->title);
+	free(t);
 }
 
 bool
@@ -59,7 +92,7 @@ is_music_file(char const *fpath)
 }
 
 size_t
-parse_id3_size(unsigned char const*b)
+id3_syncsafe(unsigned char const*b)
 {
 	size_t n = 0;
 	for (size_t i = 0; i < 4; i++)
@@ -70,10 +103,10 @@ parse_id3_size(unsigned char const*b)
 ID3Header*
 id3_header(FILE *f)
 {
-	unsigned char buf[10];
+	unsigned char buf[ID3_HEADER_LEN];
 	ID3Header *h;
 
-	size_t n = fread(buf, 1, 10, f);
+	size_t n = fread(buf, 1, ID3_HEADER_LEN, f);
 	if (n < 10)
 		goto err;
 
@@ -88,7 +121,7 @@ id3_header(FILE *f)
 	h->extended = (buf[5] & (1<<6)) != 0;
 	h->experimental = (buf[5] & (1<<5)) != 0;
 	h->footer = (buf[5] & (1<<4)) != 0;
-	h->len = parse_id3_size(buf+6);
+	h->len = id3_syncsafe(buf+6);
 
 	return h;
 err:
@@ -96,11 +129,74 @@ err:
 	return NULL;
 }
 
+ID3Frame*
+id3_frame(FILE *f, size_t max_len)
+{
+	unsigned char buf[10];
+	ID3Frame *fr = NULL;
+
+	size_t n = fread(buf, 1, 10, f);
+	if (n < 10)
+		goto err;;
+
+	size_t frame_len = id3_syncsafe(buf+4);
+	if (frame_len > max_len) {
+		fprintf(stderr, "expected %zu <= %zu\n", frame_len, max_len);
+		assert(false);
+		goto err;
+	}
+	fr = calloc(1, sizeof(*fr) + frame_len);
+	memcpy(fr->id, buf, 4);
+	fr->size = frame_len;
+	n = fread(fr->data, 1, frame_len, f);
+	if (n < frame_len) {
+		fprintf(stderr, "expected %zu, got %zu\n", frame_len, n);
+		assert(false);
+		goto err;
+	}
+	return fr;
+err:
+	free(fr);
+	return NULL;
+}
+
+Tags*
+id3_parse(FILE *f)
+{
+	Tags *t = NULL;
+	ID3Header *h = id3_header(f);
+	if (!h)
+		return NULL;
+
+	// none of my 2.7k id3 tagged files have an extended header
+	if (h->extended)
+		goto out;
+
+	size_t id3_len = h->len;
+	while (id3_len > ID3_HEADER_LEN) {
+		ID3Frame *fr = id3_frame(f, id3_len);
+		if (!fr)
+			break;
+		id3_len -= ID3_HEADER_LEN + fr->size;
+		fprintf(stderr, "see %s (len:%d) (id3_len:%zu)\n", fr->id, fr->size, id3_len);
+		free(fr);
+	}
+out:
+	free(h);
+	return t;
+}
+
+Tags*
+atom_parse(FILE *f)
+{
+	return NULL;
+}
+
 int
 check_entry(char const *fpath, const struct stat *sb, int typeflag,
 	    struct FTW *ftwbuf)
 {
-
+	Tags* t = NULL;
 	if (!is_music_file(fpath))
 		return 0;
 
@@ -108,13 +204,15 @@ check_entry(char const *fpath, const struct stat *sb, int typeflag,
 	if (!f)
 		return 0;
 
-	ID3Header *h = id3_header(f);
-	if (!h)
+	t = id3_parse(f);
+	if (!t)
+		t = atom_parse(f);
+	if (!t)
 		goto out;
 
-	fprintf(stderr, "'%s': <%d.%d len:%d>\n", fpath, h->major, h->minor, h->len);
+	// TODO(bp) symlink it up
 out:
-	free(h);
+	free_tags(t);
 	fclose(f);
 	return 0;
 }
