@@ -137,7 +137,7 @@ id3_frame(FILE *f, size_t max_len)
 
 	size_t n = fread(buf, 1, 10, f);
 	if (n < 10)
-		goto err;;
+		goto err;
 
 	size_t frame_len = id3_syncsafe(buf+4);
 	if (frame_len > max_len) {
