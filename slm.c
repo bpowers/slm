@@ -6,10 +6,13 @@
 #include <ftw.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wordexp.h>
+
+#include "utf.h"
 
 #include "config.h"
 
@@ -29,8 +32,8 @@ typedef struct {
 
 typedef struct {
 	char id[5];
-	int size;
-	char data[];
+	size_t size;
+	unsigned char data[];
 } ID3Frame;
 
 typedef struct {
@@ -143,11 +146,12 @@ id3_frame(FILE *f, ID3Header* h, size_t max_len)
 
 	size_t frame_len = id3_syncsafe(buf+field_len, field_len);
 	if (frame_len > max_len) {
-		fprintf(stderr, "max(%d:%x %x %x): expected %zu <= %zu\n", h->major, buf[0], buf[1], buf[2], frame_len, max_len);
+		//fprintf(stderr, "max(%d:%x %x %x): expected %zu <= %zu\n", h->major, buf[0], buf[1], buf[2], frame_len, max_len);
 		//assert(false);
 		goto err;
 	}
 	fr = calloc(1, sizeof(*fr) + frame_len);
+
 	memcpy(fr->id, buf, field_len);
 	fr->size = frame_len;
 	n = fread(fr->data, 1, frame_len, f);
@@ -160,6 +164,84 @@ id3_frame(FILE *f, ID3Header* h, size_t max_len)
 err:
 	free(fr);
 	return NULL;
+}
+
+
+static const Rune surr1 = 0xd800;
+static const Rune surr2 = 0xdc00;
+static const Rune surr3 = 0xe000;
+static const Rune replacement_char = 0xfffd;
+
+bool
+is_surrogate(Rune r)
+{
+	return surr1 <= r && r < surr3;
+}
+
+Rune
+decoderune16(Rune r1, Rune r2)
+{
+	return replacement_char;
+}
+
+void
+print_frame(ID3Frame* fr)
+{
+	char *decoded = calloc(1, fr->size);
+	const bool is_unicode = fr->data[0];
+	if (!is_unicode) {
+		//fprintf(stderr, "%s: isn't unicode (%s)\n", fr->id, fr->data+1);
+		return;
+	}
+	size_t off = 1;
+	unsigned short *d = fr->data + off;
+
+	bool leBOM = false;
+	if (d[0] == 0xfffe)
+		leBOM = true;
+	else if (d[0] == 0xfeff)
+		leBOM = false;
+	else
+		return;
+
+	d++;
+	off+=2;
+	if (off >= fr->size)
+		return;
+
+	const bool null_term = d[0] == 0;
+	if (null_term) {
+		d++;
+		off+=2;
+	}
+
+	char *curr = decoded;
+	size_t n = 0;
+	const size_t u16_len = (fr->size - off)/2;
+	for (size_t i = 0; i < u16_len; i++) {
+		char buf[5];
+		Rune r = d[i];
+		memset(buf, 0, 5);
+		if (surr1 <= r && r < surr2 && i+1 < u16_len && surr2 <= d[i+1] && d[i+1] < surr3) {
+			// valid surrogate sequence
+			fprintf(stderr, "!!!surr seq\n");
+			Rune r = decoderune16(d[i], d[i+1]);
+		} else if (surr1 <= r && r < surr3) {
+			// invalid surrogate sequence
+			fprintf(stderr, "!**invalsurr seq\n");
+		} else {
+			if (leBOM) {
+				buf[0] = r >> 8;
+				buf[1] = r & 0xff;
+			} else {
+				buf[0] = r & 0xff;
+				buf[1] = r >> 8;
+			}
+			strcpy(curr, buf);
+			curr = curr + strlen(curr);
+		}
+	}
+	fprintf(stderr, "decoded: %s\n", decoded);
 }
 
 Tags*
@@ -181,10 +263,10 @@ id3_parse(FILE *f)
 		if (!fr)
 			break;
 		id3_len -= fh_len + fr->size;
-		fprintf(stderr, "see %d.%d %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, fr->id, fr->size, id3_len);
+		//fprintf(stderr, "see %d.%d %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, fr->id, fr->size, id3_len);
 
-		if (strcmp(fr->id, "TALB") == 0)
-			fprintf(stderr, "album: %s\n", fr->data);
+		if (fr->id[0] == 'T')
+			print_frame(fr);
 
 		free(fr);
 	}

@@ -11,7 +11,7 @@ INCS := -Ilibutf
 LIBS := libutf/libutf.a
 
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_BSD_SOURCE -D_XOPEN_SOURCE=600
-CFLAGS += -g -std=c99 -Os ${WARNFLAGS} ${INCS} ${CPPFLAGS}
+CFLAGS += -g -std=c99 -O0 ${WARNFLAGS} ${INCS} ${CPPFLAGS}
 LDFLAGS += -g ${LIBS}
 
 CC ?= cc
