@@ -46,7 +46,7 @@ static void die(char const*, ...);
 static void free_tags(Tags*);
 static bool is_music_file(char const*);
 static ID3Header *id3_header(FILE*);
-static size_t id3_syncsafe(unsigned char const*);
+static size_t id3_syncsafe(unsigned char const*, size_t);
 static Tags *id3_parse(FILE *f);
 static Tags *atom_parse(FILE *f);
 
@@ -92,11 +92,11 @@ is_music_file(char const *fpath)
 }
 
 size_t
-id3_syncsafe(unsigned char const*b)
+id3_syncsafe(unsigned char const *b, size_t len)
 {
 	size_t n = 0;
-	for (size_t i = 0; i < 4; i++)
-		n |= (b[i] & 0x7f) << (4 - i - 1)*7;
+	for (size_t i = 0; i < len; i++)
+		n |= (b[i] & 0x7f) << (len - i - 1)*7;
 	return n;
 }
 
@@ -121,7 +121,7 @@ id3_header(FILE *f)
 	h->extended = (buf[5] & (1<<6)) != 0;
 	h->experimental = (buf[5] & (1<<5)) != 0;
 	h->footer = (buf[5] & (1<<4)) != 0;
-	h->len = id3_syncsafe(buf+6);
+	h->len = 4 * id3_syncsafe(buf+6, 4);
 
 	return h;
 err:
@@ -130,27 +130,29 @@ err:
 }
 
 ID3Frame*
-id3_frame(FILE *f, size_t max_len)
+id3_frame(FILE *f, ID3Header* h, size_t max_len)
 {
-	unsigned char buf[10];
+	unsigned char buf[ID3_HEADER_LEN];
+	const size_t header_len = h->major == 2 ? 6 : 10;
+	const size_t field_len = h->major == 2 ? 3 : 4;
 	ID3Frame *fr = NULL;
 
-	size_t n = fread(buf, 1, 10, f);
-	if (n < 10)
+	size_t n = fread(buf, 1, header_len, f);
+	if (n < header_len)
 		goto err;
 
-	size_t frame_len = id3_syncsafe(buf+4);
+	size_t frame_len = id3_syncsafe(buf+field_len, field_len);
 	if (frame_len > max_len) {
-		fprintf(stderr, "max: expected %zu <= %zu\n", frame_len, max_len);
+		fprintf(stderr, "max(%d:%x %x %x): expected %zu <= %zu\n", h->major, buf[0], buf[1], buf[2], frame_len, max_len);
 		//assert(false);
 		goto err;
 	}
 	fr = calloc(1, sizeof(*fr) + frame_len);
-	memcpy(fr->id, buf, 4);
+	memcpy(fr->id, buf, field_len);
 	fr->size = frame_len;
 	n = fread(fr->data, 1, frame_len, f);
 	if (n < frame_len) {
-		fprintf(stderr, "frame: expected %zu >= got %zu\n", frame_len, n);
+		fprintf(stderr, "frame(%d): expected %zu >= got %zu\n", h->major, frame_len, n);
 		//assert(false);
 		goto err;
 	}
@@ -172,12 +174,13 @@ id3_parse(FILE *f)
 	if (h->extended)
 		goto out;
 
+	const size_t fh_len = h->major == 2 ? 6 : 10;
 	size_t id3_len = h->len;
-	while (id3_len > ID3_HEADER_LEN) {
-		ID3Frame *fr = id3_frame(f, id3_len);
+	while (id3_len > fh_len) {
+		ID3Frame *fr = id3_frame(f, h, id3_len);
 		if (!fr)
 			break;
-		id3_len -= ID3_HEADER_LEN + fr->size;
+		id3_len -= fh_len + fr->size;
 		fprintf(stderr, "see %d.%d %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, fr->id, fr->size, id3_len);
 
 		if (strcmp(fr->id, "TALB") == 0)
@@ -208,6 +211,7 @@ check_entry(char const *fpath, const struct stat *sb, int typeflag,
 	if (!f)
 		return 0;
 
+	fprintf(stderr, "%s\n", fpath);
 	t = id3_parse(f);
 	if (!t)
 		t = atom_parse(f);
