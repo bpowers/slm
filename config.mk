@@ -7,8 +7,8 @@ WARNFLAGS := -pedantic -Wvariadic-macros \
              -Wcast-qual -Wwrite-strings -Wsign-compare \
              -Wstrict-aliasing=2 -Wno-unused-parameter
 
-INCS :=
-LIBS :=
+INCS := -Ilibutf
+LIBS := libutf/libutf.a
 
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_BSD_SOURCE -D_XOPEN_SOURCE=600
 CFLAGS += -g -std=c99 -Os ${WARNFLAGS} ${INCS} ${CPPFLAGS}

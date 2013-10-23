@@ -14,9 +14,14 @@ config.h:
 
 ${OBJ}: config.h config.mk
 
-slml: ${OBJ}
+slm: libutf/libutf.a ${OBJ}
 	@echo "  LD    $@"
 	@${CC} -o $@ ${OBJ} ${LDFLAGS}
+
+libutf/libutf.a:
+	@git submodule init
+	@git submodule update
+	@${MAKE} -C libutf
 
 clean:
 	rm -f slm ${OBJ}
