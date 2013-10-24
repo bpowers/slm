@@ -33,7 +33,7 @@ typedef struct {
 typedef struct {
 	char id[5];
 	size_t size;
-	unsigned char data[];
+	uint8_t data[];
 } ID3Frame;
 
 typedef struct {
@@ -49,7 +49,7 @@ static void die(char const*, ...);
 static void free_tags(Tags*);
 static bool is_music_file(char const*);
 static ID3Header *id3_header(FILE*);
-static size_t id3_syncsafe(unsigned char const*, size_t);
+static size_t id3_syncsafe(uint8_t const*, size_t);
 static Tags *id3_parse(FILE *f);
 static Tags *atom_parse(FILE *f);
 
@@ -95,7 +95,7 @@ is_music_file(char const *fpath)
 }
 
 size_t
-id3_syncsafe(unsigned char const *b, size_t len)
+id3_syncsafe(uint8_t const *b, size_t len)
 {
 	size_t n = 0;
 	for (size_t i = 0; i < len; i++)
@@ -106,7 +106,7 @@ id3_syncsafe(unsigned char const *b, size_t len)
 ID3Header*
 id3_header(FILE *f)
 {
-	unsigned char buf[ID3_HEADER_LEN];
+	uint8_t buf[ID3_HEADER_LEN];
 	ID3Header *h;
 
 	size_t n = fread(buf, 1, ID3_HEADER_LEN, f);
@@ -135,7 +135,7 @@ err:
 ID3Frame*
 id3_frame(FILE *f, ID3Header* h, size_t max_len)
 {
-	unsigned char buf[ID3_HEADER_LEN];
+	uint8_t buf[ID3_HEADER_LEN];
 	const size_t header_len = h->major == 2 ? 6 : 10;
 	const size_t field_len = h->major == 2 ? 3 : 4;
 	ID3Frame *fr = NULL;
@@ -194,7 +194,7 @@ print_frame(ID3Frame* fr)
 		return;
 	}
 	size_t off = 1;
-	unsigned short *d = fr->data + off;
+	uint16_t *d = (uint16_t*)(fr->data + off);
 
 	bool leBOM = false;
 	if (d[0] == 0xfffe)
@@ -216,7 +216,6 @@ print_frame(ID3Frame* fr)
 	}
 
 	char *curr = decoded;
-	size_t n = 0;
 	const size_t u16_len = (fr->size - off)/2;
 	for (size_t i = 0; i < u16_len; i++) {
 		char buf[5];
@@ -225,7 +224,7 @@ print_frame(ID3Frame* fr)
 		if (surr1 <= r && r < surr2 && i+1 < u16_len && surr2 <= d[i+1] && d[i+1] < surr3) {
 			// valid surrogate sequence
 			fprintf(stderr, "!!!surr seq\n");
-			Rune r = decoderune16(d[i], d[i+1]);
+			//Rune r = decoderune16(d[i], d[i+1]);
 		} else if (surr1 <= r && r < surr3) {
 			// invalid surrogate sequence
 			fprintf(stderr, "!**invalsurr seq\n");
