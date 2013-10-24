@@ -206,24 +206,24 @@ utf16to8(char *dst, void *src, size_t n)
 	if (n < 2)
 		return 0;
 
-	uint16_t *d = (uint16_t*)src;
+	uint8_t *d = src;
 	size_t off = 0;
 
 	bool leBOM = false;
-	if (d[0] == 0xfffe) {
+	if (d[0] == 0xff && d[1] == 0xfe) {
 		leBOM = true;
-		d++;
+		d+=2;
 		off += 2;
 	}
-	else if (d[0] == 0xfeff) {
-		d++;
+	else if (d[0] == 0xfe && d[1] == 0xff) {
+		d+=2;
 		off += 2;
 	}
 	if (off >= n)
 		return 0;
 
 	// specific to id3
-	if (d[0] == 0) {
+	if (d[0] == 0 && d[1] == 0) {
 		d++;
 		off+=2;
 	}
@@ -232,11 +232,14 @@ utf16to8(char *dst, void *src, size_t n)
 
 	char *curr = dst;
 	size_t dst_len = 0;
-	const size_t u16_len = (n - off)/2;
-	for (size_t i = 0; i < u16_len; i++) {
-		Rune r = d[i];
-		char buf[5];
-		memset(buf, 0, 5);
+	const size_t u16_len = n - off;
+	for (size_t i = 0; i < u16_len; i+=2) {
+		Rune r;
+		if (leBOM)
+			r = d[i] + (d[i+1] << 8);
+		else
+			r = d[i+1] + (d[i] << 8);
+
 		if (surr1 <= r && r < surr2 && i+1 < u16_len && surr2 <= d[i+1] && d[i+1] < surr3) {
 			// valid surrogate sequence
 			fprintf(stderr, "!!!surr seq\n");
@@ -245,15 +248,7 @@ utf16to8(char *dst, void *src, size_t n)
 			// invalid surrogate sequence
 			fprintf(stderr, "!**invalsurr seq\n");
 		} else {
-			if (leBOM) {
-				buf[0] = r >> 8;
-				buf[1] = r & 0xff;
-			} else {
-				buf[0] = r & 0xff;
-				buf[1] = r >> 8;
-			}
-			strcpy(curr, buf);
-			curr = curr + strlen(curr);
+			curr += runetochar(curr, &r);
 			dst_len++;
 		}
 	}
