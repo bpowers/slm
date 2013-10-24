@@ -341,9 +341,12 @@ main(int argc, char *const argv[])
 		char const* arg = argv[0];
 		if (!strcmp("-help", arg)) {
 			usage();
-		} else {
+		} else if (arg[0] == '-') {
 			fprintf(stderr, "unknown arg '%s'\n", arg);
 			usage();
+		} else {
+			check_entry(arg, NULL, 0, NULL);
+			return 0;
 		}
 	}
 
