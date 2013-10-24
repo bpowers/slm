@@ -52,6 +52,7 @@ static ID3Header *id3_header(FILE*);
 static size_t id3_syncsafe(uint8_t const*, size_t);
 static Tags *id3_parse(FILE *f);
 static Tags *atom_parse(FILE *f);
+static size_t utf16to8(char *dst, void *src, size_t len);
 
 void
 die(char const *fmt, ...)
@@ -187,39 +188,54 @@ decoderune16(Rune r1, Rune r2)
 void
 print_frame(ID3Frame* fr)
 {
-	char *decoded = calloc(1, fr->size);
 	const bool is_unicode = fr->data[0];
-	if (!is_unicode) {
-		//fprintf(stderr, "%s: isn't unicode (%s)\n", fr->id, fr->data+1);
-		return;
+	if (is_unicode) {
+		size_t n = utf16to8((char*)fr->data, fr->data+1, fr->size - 1);
+		if (n == 0)
+			return;
+	} else {
+		memmove(fr->data, fr->data+1, fr->size - 1);
 	}
-	size_t off = 1;
-	uint16_t *d = (uint16_t*)(fr->data + off);
+	fprintf(stderr, "%s: %s\n", fr->id, fr->data);
+}
+
+// algorithm from go's unicode/utf16 package
+size_t
+utf16to8(char *dst, void *src, size_t n)
+{
+	if (n < 2)
+		return 0;
+
+	uint16_t *d = (uint16_t*)src;
+	size_t off = 0;
 
 	bool leBOM = false;
-	if (d[0] == 0xfffe)
+	if (d[0] == 0xfffe) {
 		leBOM = true;
-	else if (d[0] == 0xfeff)
-		leBOM = false;
-	else
-		return;
+		d++;
+		off += 2;
+	}
+	else if (d[0] == 0xfeff) {
+		d++;
+		off += 2;
+	}
+	if (off >= n)
+		return 0;
 
-	d++;
-	off+=2;
-	if (off >= fr->size)
-		return;
-
-	const bool null_term = d[0] == 0;
-	if (null_term) {
+	// specific to id3
+	if (d[0] == 0) {
 		d++;
 		off+=2;
 	}
+	if (off >= n)
+		return 0;
 
-	char *curr = decoded;
-	const size_t u16_len = (fr->size - off)/2;
+	char *curr = dst;
+	size_t dst_len = 0;
+	const size_t u16_len = (n - off)/2;
 	for (size_t i = 0; i < u16_len; i++) {
-		char buf[5];
 		Rune r = d[i];
+		char buf[5];
 		memset(buf, 0, 5);
 		if (surr1 <= r && r < surr2 && i+1 < u16_len && surr2 <= d[i+1] && d[i+1] < surr3) {
 			// valid surrogate sequence
@@ -238,9 +254,10 @@ print_frame(ID3Frame* fr)
 			}
 			strcpy(curr, buf);
 			curr = curr + strlen(curr);
+			dst_len++;
 		}
 	}
-	fprintf(stderr, "decoded: %s\n", decoded);
+	return dst_len;
 }
 
 Tags*
