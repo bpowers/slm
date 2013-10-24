@@ -167,24 +167,6 @@ err:
 	return NULL;
 }
 
-
-static const Rune surr1 = 0xd800;
-static const Rune surr2 = 0xdc00;
-static const Rune surr3 = 0xe000;
-static const Rune replacement_char = 0xfffd;
-
-bool
-is_surrogate(Rune r)
-{
-	return surr1 <= r && r < surr3;
-}
-
-Rune
-decoderune16(Rune r1, Rune r2)
-{
-	return replacement_char;
-}
-
 void
 print_frame(ID3Frame* fr)
 {
@@ -239,18 +221,9 @@ utf16to8(char *dst, void *src, size_t n)
 			r = d[i] + (d[i+1] << 8);
 		else
 			r = d[i+1] + (d[i] << 8);
-
-		if (surr1 <= r && r < surr2 && i+1 < u16_len && surr2 <= d[i+1] && d[i+1] < surr3) {
-			// valid surrogate sequence
-			fprintf(stderr, "!!!surr seq\n");
-			//Rune r = decoderune16(d[i], d[i+1]);
-		} else if (surr1 <= r && r < surr3) {
-			// invalid surrogate sequence
-			fprintf(stderr, "!**invalsurr seq\n");
-		} else {
-			curr += runetochar(curr, &r);
-			dst_len++;
-		}
+		size_t rlen = runetochar(curr, &r);
+		curr += rlen;
+		dst_len += rlen;
 	}
 	return dst_len;
 }
