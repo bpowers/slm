@@ -52,7 +52,7 @@ static ID3Header *id3_header(FILE*);
 static size_t id3_syncsafe(uint8_t const*, size_t);
 static Tags *id3_parse(FILE *f);
 static Tags *atom_parse(FILE *f);
-static size_t utf16to8(char *dst, void *src, size_t len);
+static size_t utf16to8(char *, void *, size_t, bool);
 
 void
 die(char const *fmt, ...)
@@ -179,7 +179,31 @@ print_frame(ID3Frame* fr)
 {
 	const bool is_unicode = fr->data[0];
 	if (is_unicode) {
-		size_t n = utf16to8((char*)fr->data, fr->data+1, fr->size - 1);
+		if (fr->size < 3)
+			return;
+		uint8_t *d = fr->data+1;
+		size_t off = 1;
+		bool leBOM = false;
+		if (d[0] == 0xff && d[1] == 0xfe) {
+			leBOM = true;
+			d+=2;
+			off += 2;
+		}
+		else if (d[0] == 0xfe && d[1] == 0xff) {
+			d+=2;
+			off += 2;
+		}
+		if (off >= fr->size)
+			return;
+		// leading UTF-16 NULL is used to indicate null
+		// termination of string.
+		if (d[0] == 0 && d[1] == 0) {
+			d++;
+			off+=2;
+		}
+		if (off >= fr->size)
+			return;
+		size_t n = utf16to8((char*)fr->data, d, fr->size - off, leBOM);
 		if (n == 0)
 			return;
 		fr->data[n] = '\0';
@@ -191,34 +215,13 @@ print_frame(ID3Frame* fr)
 
 // algorithm from go's unicode/utf16 package
 size_t
-utf16to8(char *dst, void *src, size_t n)
+utf16to8(char *dst, void *src, size_t n, bool leBOM)
 {
 	if (n < 2)
 		return 0;
 
 	uint8_t *d = src;
 	size_t off = 0;
-
-	bool leBOM = false;
-	if (d[0] == 0xff && d[1] == 0xfe) {
-		leBOM = true;
-		d+=2;
-		off += 2;
-	}
-	else if (d[0] == 0xfe && d[1] == 0xff) {
-		d+=2;
-		off += 2;
-	}
-	if (off >= n)
-		return 0;
-
-	// specific to id3
-	if (d[0] == 0 && d[1] == 0) {
-		d++;
-		off+=2;
-	}
-	if (off >= n)
-		return 0;
 
 	char *curr = dst;
 	size_t dst_len = 0;
