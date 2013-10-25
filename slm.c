@@ -145,10 +145,17 @@ id3_frame(FILE *f, ID3Header* h, size_t max_len)
 	if (n < header_len)
 		goto err;
 
-	size_t frame_len = id3_syncsafe(buf+field_len, field_len);
+	size_t frame_len;
+	if (h->major == 2)
+		frame_len = buf[3] << 16 | buf[4] << 8 | buf[5];
+	else
+		frame_len = id3_syncsafe(buf+field_len, field_len);
+
 	if (frame_len > max_len) {
-		//fprintf(stderr, "max(%d:%x %x %x): expected %zu <= %zu\n", h->major, buf[0], buf[1], buf[2], frame_len, max_len);
-		//assert(false);
+		// this is ridiculous.  Almost nobody follows the spec
+		// to correctly specify tag len, so we often exit tag
+		// reading through here when we start reading into the
+		// mp3 data.
 		goto err;
 	}
 	fr = calloc(1, sizeof(*fr) + frame_len);
@@ -175,6 +182,7 @@ print_frame(ID3Frame* fr)
 		size_t n = utf16to8((char*)fr->data, fr->data+1, fr->size - 1);
 		if (n == 0)
 			return;
+		fr->data[n] = '\0';
 	} else {
 		memmove(fr->data, fr->data+1, fr->size - 1);
 	}
@@ -247,7 +255,11 @@ id3_parse(FILE *f)
 		if (!fr)
 			break;
 		id3_len -= fh_len + fr->size;
-		//fprintf(stderr, "see %d.%d %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, fr->id, fr->size, id3_len);
+		if (fr->size == 0) {
+			free(fr);
+			break;
+		}
+		//fprintf(stderr, "see %d.%d %zu %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, h->len, fr->id, fr->size, id3_len);
 
 		if (fr->id[0] == 'T')
 			print_frame(fr);
