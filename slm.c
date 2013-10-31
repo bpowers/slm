@@ -19,6 +19,7 @@
 char *argv0;
 
 #define ID3_HEADER_LEN 10
+#define ATOM_HEADER_LEN 0x20
 
 typedef struct {
 	int major; // version
@@ -35,6 +36,10 @@ typedef struct {
 	size_t size;
 	uint8_t data[];
 } ID3Frame;
+
+typedef struct {
+	char type[5];
+} AtomHeader;
 
 typedef struct {
 	char *artist;
@@ -264,8 +269,8 @@ id3_parse(FILE *f)
 		}
 		//fprintf(stderr, "see %d.%d %zu %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, h->len, fr->id, fr->size, id3_len);
 
-		if (fr->id[0] == 'T')
-			print_frame(fr);
+		//if (fr->id[0] == 'T')
+		//	print_frame(fr);
 
 		free(fr);
 	}
@@ -274,10 +279,39 @@ out:
 	return t;
 }
 
+AtomHeader*
+atom_header(FILE *f)
+{
+	uint8_t buf[ATOM_HEADER_LEN];
+	AtomHeader *h;
+
+	size_t n = fread(buf, 1, ATOM_HEADER_LEN, f);
+	if (n < ATOM_HEADER_LEN)
+		goto err;
+
+	if (!(buf[4] == 'f' && buf[5] == 't' &&
+	      buf[6] == 'y' && buf[7] == 'p')) {
+		goto err;
+	}
+
+	h = calloc(1, sizeof(*h));
+
+	return h;
+err:
+	rewind(f);
+	return NULL;
+}
+
 Tags*
 atom_parse(FILE *f)
 {
-	return NULL;
+	Tags *t = NULL;
+	AtomHeader *h = atom_header(f);
+	if (!h)
+		return NULL;
+
+	free(h);
+	return t;
 }
 
 int
