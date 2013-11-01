@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wordexp.h>
+#include <ctype.h>
 
 #include "utf.h"
 
@@ -106,8 +107,11 @@ size_t
 id3_syncsafe(uint8_t const *b, size_t len)
 {
 	size_t n = 0;
+	// b[i] SHOULD be masked with 0x7f in this loop if people
+	// followed the spec, but spec compliance is the exception,
+	// not the rule.
 	for (size_t i = 0; i < len; i++)
-		n |= (b[i] & 0x7f) << (len - i - 1)*7;
+		n |= b[i] << (len - i - 1)*7;
 	return n;
 }
 
@@ -158,21 +162,20 @@ id3_frame(FILE *f, ID3Header* h, size_t max_len)
 	else
 		frame_len = id3_syncsafe(buf+field_len, field_len);
 
-	if (frame_len > max_len) {
-		// this is ridiculous.  Almost nobody follows the spec
-		// to correctly specify tag len, so we often exit tag
-		// reading through here when we start reading into the
-		// mp3 data.
+	// tag id MUST be ASCII
+	if (!isalnum(buf[0]) || !isalnum(buf[1]) || !isalnum(buf[2]) ||
+	    frame_len > max_len)
 		goto err;
-	}
+
 	fr = calloc(1, sizeof(*fr) + frame_len);
 
 	memcpy(fr->id, buf, field_len);
 	fr->size = frame_len;
+
 	n = fread(fr->data, 1, frame_len, f);
 	if (n < frame_len) {
-		fprintf(stderr, "frame(%d): expected %zu >= got %zu\n", h->major, frame_len, n);
-		//assert(false);
+		//fprintf(stderr, "frame(%d): expected %zu >= got %zu\n", h->major, frame_len, n);
+		assert(false);
 		goto err;
 	}
 	return fr;
@@ -218,7 +221,6 @@ id3_decode_frame(ID3Frame* fr)
 	if (n == 0)
 		return;
 	fr->data[n] = '\0';
-	fprintf(stderr, "%s: %s\n", fr->id, fr->data);
 }
 
 // algorithm from go's unicode/utf16 package

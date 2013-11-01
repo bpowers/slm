@@ -5,7 +5,8 @@ PREFIX=/usr/local
 WARNFLAGS := -pedantic -Wvariadic-macros \
              -Wformat -Wall -Wextra -Wundef -Wpointer-arith \
              -Wcast-qual -Wwrite-strings -Wsign-compare \
-             -Wstrict-aliasing=2 -Wno-unused-parameter
+             -Wstrict-aliasing=2 -Wno-unused-parameter \
+             -Werror
 
 INCS := -Ilibutf
 LIBS := libutf/libutf.a
