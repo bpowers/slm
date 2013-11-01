@@ -34,7 +34,7 @@ typedef struct {
 typedef struct {
 	char id[5];
 	size_t size;
-	uint8_t data[];
+	char data[];
 } ID3Frame;
 
 typedef struct {
@@ -56,6 +56,8 @@ static bool is_music_file(char const*);
 static ID3Header *id3_header(FILE*);
 static size_t id3_syncsafe(uint8_t const*, size_t);
 static Tags *id3_parse(FILE *f);
+static void id3_decode_frame(ID3Frame* fr);
+static void id3_normalize_v2(ID3Frame *fr);
 static Tags *atom_parse(FILE *f);
 static size_t utf16to8(char *, void *, size_t, bool);
 
@@ -180,41 +182,42 @@ err:
 }
 
 void
-print_frame(ID3Frame* fr)
+id3_decode_frame(ID3Frame* fr)
 {
 	const bool is_unicode = fr->data[0];
-	if (is_unicode) {
-		if (fr->size < 3)
-			return;
-		uint8_t *d = fr->data+1;
-		size_t off = 1;
-		bool leBOM = false;
-		if (d[0] == 0xff && d[1] == 0xfe) {
-			leBOM = true;
-			d+=2;
-			off += 2;
-		}
-		else if (d[0] == 0xfe && d[1] == 0xff) {
-			d+=2;
-			off += 2;
-		}
-		if (off >= fr->size)
-			return;
-		// leading UTF-16 NULL is used to indicate null
-		// termination of string.
-		if (d[0] == 0 && d[1] == 0) {
-			d++;
-			off+=2;
-		}
-		if (off >= fr->size)
-			return;
-		size_t n = utf16to8((char*)fr->data, d, fr->size - off, leBOM);
-		if (n == 0)
-			return;
-		fr->data[n] = '\0';
-	} else {
+	if (!is_unicode) {
 		memmove(fr->data, fr->data+1, fr->size - 1);
+		return;
 	}
+
+	if (fr->size < 3)
+		return;
+	uint8_t *d = (uint8_t*)fr->data+1;
+	size_t off = 1;
+	bool leBOM = false;
+	if (d[0] == 0xff && d[1] == 0xfe) {
+		leBOM = true;
+		d+=2;
+		off += 2;
+	}
+	else if (d[0] == 0xfe && d[1] == 0xff) {
+		d+=2;
+		off += 2;
+	}
+	if (off >= fr->size)
+		return;
+	// leading UTF-16 NULL is used to indicate null
+	// termination of string.
+	if (d[0] == 0 && d[1] == 0) {
+		d++;
+		off+=2;
+	}
+	if (off >= fr->size)
+		return;
+	size_t n = utf16to8((char*)fr->data, d, fr->size - off, leBOM);
+	if (n == 0)
+		return;
+	fr->data[n] = '\0';
 	fprintf(stderr, "%s: %s\n", fr->id, fr->data);
 }
 
@@ -244,6 +247,21 @@ utf16to8(char *dst, void *src, size_t n, bool leBOM)
 	return dst_len;
 }
 
+/// id3_normalize_v2 converts v2 frame ids into the corresponding v3
+/// frame ids.
+void
+id3_normalize_v2(ID3Frame *fr)
+{
+	if (strcmp(fr->id, "TT2") == 0)
+		strcpy(fr->id, "TIT2");
+	else if (strcmp(fr->id, "TP1") == 0)
+		strcpy(fr->id, "TPE1");
+	else if (strcmp(fr->id, "TAL") == 0)
+		strcpy(fr->id, "TALB");
+	else if (strcmp(fr->id, "TRK") == 0)
+		strcpy(fr->id, "TRCK");
+}
+
 Tags*
 id3_parse(FILE *f)
 {
@@ -251,6 +269,8 @@ id3_parse(FILE *f)
 	ID3Header *h = id3_header(f);
 	if (!h)
 		return NULL;
+
+	t = calloc(1, sizeof(*t));
 
 	// none of my 2.7k id3 tagged files have an extended header
 	if (h->extended)
@@ -267,10 +287,26 @@ id3_parse(FILE *f)
 			free(fr);
 			break;
 		}
-		//fprintf(stderr, "see %d.%d %zu %s (len:%d) (id3_len:%zu)\n", h->major, h->minor, h->len, fr->id, fr->size, id3_len);
+		if (h->major == 2)
+			id3_normalize_v2(fr);
 
-		//if (fr->id[0] == 'T')
-		//	print_frame(fr);
+		if (fr->id[0] == 'T') {
+			id3_decode_frame(fr);
+			if (strcmp(fr->id, "TIT2") == 0)
+				t->title = strdup(fr->data);
+			else if (strcmp(fr->id, "TPE1") == 0)
+				t->artist = strdup(fr->data);
+			else if (strcmp(fr->id, "TALB") == 0)
+				t->album = strdup(fr->data);
+			else if (strcmp(fr->id, "TRCK") == 0)
+				t->track = atoi(fr->data);
+			else if (strcmp(fr->id, "TPOS") == 0) {
+				t->disk = atoi(fr->data);
+				char *slash = strchr(fr->data, '/');
+				if (slash)
+					t->n_disks = atoi(slash+1);
+			}
+		}
 
 		free(fr);
 	}
@@ -334,6 +370,7 @@ check_entry(char const *fpath, const struct stat *sb, int typeflag,
 		goto out;
 
 	// TODO(bp) symlink it up
+	fprintf(stderr, "{\n\ttitle:\t%s\n\talbum:\t%s\n\tartist:\t%s\n\ttrack:\t%d\n}\n", t->title, t->album, t->artist, t->track);
 out:
 	free_tags(t);
 	fclose(f);
