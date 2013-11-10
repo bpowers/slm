@@ -354,11 +354,17 @@ atom_parse(FILE *f)
 	return t;
 }
 
+void
+link_up(char const *fpath, Tags *t)
+{
+
+}
+
 int
 check_entry(char const *fpath, const struct stat *sb, int typeflag,
 	    struct FTW *ftwbuf)
 {
-	Tags* t = NULL;
+	Tags *t = NULL;
 	if (!is_music_file(fpath))
 		return 0;
 
@@ -366,15 +372,13 @@ check_entry(char const *fpath, const struct stat *sb, int typeflag,
 	if (!f)
 		return 0;
 
-	//fprintf(stderr, "%s\n", fpath);
 	t = id3_parse(f);
 	if (!t)
 		t = atom_parse(f);
 	if (!t)
 		goto out;
 
-	// TODO(bp) symlink it up
-	//fprintf(stderr, "{\n\ttitle:\t%s\n\talbum:\t%s\n\tartist:\t%s\n\ttrack:\t%d\n}\n", t->title, t->album, t->artist, t->track);
+	link_up(fpath, t);
 out:
 	free_tags(t);
 	fclose(f);
