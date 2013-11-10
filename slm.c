@@ -159,6 +159,8 @@ id3_frame(FILE *f, ID3Header* h, size_t max_len)
 	size_t frame_len;
 	if (h->major == 2)
 		frame_len = buf[3] << 16 | buf[4] << 8 | buf[5];
+	else if (h->major == 3)
+		frame_len = buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7];
 	else
 		frame_len = id3_syncsafe(buf+field_len, field_len);
 
