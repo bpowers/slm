@@ -169,7 +169,8 @@ id3_frame(FILE *f, ID3Header* h, size_t max_len)
 	    frame_len > max_len)
 		goto err;
 
-	fr = calloc(1, sizeof(*fr) + frame_len);
+	// +1 to ensure a trailing null
+	fr = calloc(1, sizeof(*fr) + frame_len + 1);
 
 	memcpy(fr->id, buf, field_len);
 	fr->size = frame_len;
@@ -220,9 +221,8 @@ id3_decode_frame(ID3Frame* fr)
 	if (off >= fr->size)
 		return;
 	size_t n = utf16to8((char*)fr->data, d, fr->size - off, leBOM);
-	if (n == 0)
-		return;
-	fr->data[n] = '\0';
+	if (n != 0)
+		fr->data[n] = '\0';
 }
 
 // algorithm from go's unicode/utf16 package
@@ -366,7 +366,7 @@ check_entry(char const *fpath, const struct stat *sb, int typeflag,
 	if (!f)
 		return 0;
 
-	fprintf(stderr, "%s\n", fpath);
+	//fprintf(stderr, "%s\n", fpath);
 	t = id3_parse(f);
 	if (!t)
 		t = atom_parse(f);
@@ -374,7 +374,7 @@ check_entry(char const *fpath, const struct stat *sb, int typeflag,
 		goto out;
 
 	// TODO(bp) symlink it up
-	fprintf(stderr, "{\n\ttitle:\t%s\n\talbum:\t%s\n\tartist:\t%s\n\ttrack:\t%d\n}\n", t->title, t->album, t->artist, t->track);
+	//fprintf(stderr, "{\n\ttitle:\t%s\n\talbum:\t%s\n\tartist:\t%s\n\ttrack:\t%d\n}\n", t->title, t->album, t->artist, t->track);
 out:
 	free_tags(t);
 	fclose(f);
@@ -418,5 +418,6 @@ main(int argc, char *const argv[])
 	if (err)
 		die("nftw(%s)\n", startd);
 
+	free(startd);
 	return 0;
 }
