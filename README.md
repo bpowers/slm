@@ -30,6 +30,7 @@ TODO
   we can efficiently update the symlink farm.
 - maybe a daemon that watches for new or moved files with
   inotify/kqueue.
+- testing under BSDs
 
 license
 -------
