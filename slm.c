@@ -2,22 +2,28 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#define _GNU_SOURCE // asprintf
 #include <assert.h>
+#include <ctype.h>
+#include <errno.h>
 #include <ftw.h>
+#include <libgen.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <wordexp.h>
-#include <ctype.h>
+#undef _GNU_SOURCE
 
 #include "utf.h"
 
 #include "config.h"
 
 char *argv0;
+char *destd;
 
 #define ID3_HEADER_LEN 10
 #define ATOM_HEADER_LEN 0x20
@@ -51,19 +57,23 @@ typedef struct {
 	int n_disks;
 } Tags;
 
-static void die(char const*, ...);
-static void free_tags(Tags*);
-static bool is_music_file(char const*);
-static ID3Header *id3_header(FILE*);
-static size_t id3_syncsafe(uint8_t const*, size_t);
-static Tags *id3_parse(FILE *f);
-static void id3_decode_frame(ID3Frame* fr);
-static void id3_normalize_v2(ID3Frame *fr);
-static Tags *atom_parse(FILE *f);
+static void die(const char *, ...);
+static void free_tags(Tags *);
+static int mkdirr(const char *, mode_t);
+static bool is_music_file(const char *);
 static size_t utf16to8(char *, void *, size_t, bool);
 
+static ID3Header *id3_header(FILE*);
+static size_t id3_syncsafe(const uint8_t *, size_t);
+static Tags *id3_parse(FILE *);
+static void id3_decode_frame(ID3Frame *);
+static void id3_normalize_v2(ID3Frame *);
+
+static AtomHeader *atom_header(FILE *);
+static Tags *atom_parse(FILE *);
+
 void
-die(char const *fmt, ...)
+die(const char *fmt, ...)
 {
 	va_list args;
 
@@ -86,8 +96,47 @@ free_tags(Tags *t)
 	free(t);
 }
 
+/// mkdirr is a recursive mkdir wrapper
+int
+mkdirr(const char *path, mode_t mode)
+{
+	char *dirdup, *dir;
+	struct stat info;
+	int err;
+
+	dirdup = strdup(path);
+	dir = dirname(dirdup);
+
+	if (access(dir, F_OK) == -1) {
+		if (errno != ENOENT)
+			goto error;
+		// need to recurse with a copy of dir, becuase basename
+		// and dirname can modify the string passed in.
+		err = mkdirr(dirdup, mode);
+		if (err)
+			goto error;
+	}
+
+	if (stat(path, &info) == -1) {
+		if (mkdir(path, mode) == -1)
+			die("%s: mkdir failed for '%s'", __func__, path);
+		if (stat(path, &info) == -1)
+			die("%s: stat failed for '%s'", __func__, path);
+	}
+
+	if (S_ISDIR(info.st_mode)) {
+		free(dirdup);
+		return 0;
+	}
+
+	die("%s: path '%s' not a directory", __func__, path);
+error:
+	free(dirdup);
+	return -1;
+}
+
 bool
-is_music_file(char const *fpath)
+is_music_file(const char *fpath)
 {
 	char *ext;
 	ext = strrchr(fpath, '.');
@@ -103,8 +152,34 @@ is_music_file(char const *fpath)
 	return false;
 }
 
+// algorithm from go's unicode/utf16 package
 size_t
-id3_syncsafe(uint8_t const *b, size_t len)
+utf16to8(char *dst, void *src, size_t n, bool leBOM)
+{
+	if (n < 2)
+		return 0;
+
+	uint8_t *d = src;
+	size_t off = 0;
+
+	char *curr = dst;
+	size_t dst_len = 0;
+	const size_t u16_len = n - off;
+	for (size_t i = 0; i < u16_len; i+=2) {
+		Rune r;
+		if (leBOM)
+			r = d[i] + (d[i+1] << 8);
+		else
+			r = d[i+1] + (d[i] << 8);
+		size_t rlen = runetochar(curr, &r);
+		curr += rlen;
+		dst_len += rlen;
+	}
+	return dst_len;
+}
+
+size_t
+id3_syncsafe(const uint8_t *b, size_t len)
 {
 	size_t n = 0;
 	// b[i] SHOULD be masked with 0x7f in this loop if people
@@ -188,7 +263,7 @@ err:
 }
 
 void
-id3_decode_frame(ID3Frame* fr)
+id3_decode_frame(ID3Frame *fr)
 {
 	const bool is_unicode = fr->data[0];
 	if (!is_unicode) {
@@ -225,34 +300,8 @@ id3_decode_frame(ID3Frame* fr)
 		fr->data[n] = '\0';
 }
 
-// algorithm from go's unicode/utf16 package
-size_t
-utf16to8(char *dst, void *src, size_t n, bool leBOM)
-{
-	if (n < 2)
-		return 0;
-
-	uint8_t *d = src;
-	size_t off = 0;
-
-	char *curr = dst;
-	size_t dst_len = 0;
-	const size_t u16_len = n - off;
-	for (size_t i = 0; i < u16_len; i+=2) {
-		Rune r;
-		if (leBOM)
-			r = d[i] + (d[i+1] << 8);
-		else
-			r = d[i+1] + (d[i] << 8);
-		size_t rlen = runetochar(curr, &r);
-		curr += rlen;
-		dst_len += rlen;
-	}
-	return dst_len;
-}
-
-/// id3_normalize_v2 converts v2 frame ids into the corresponding v3
-/// frame ids.
+/// id3_normalize_v2 converts v2 frame ids we care about into the
+/// corresponding v3 frame ids.
 void
 id3_normalize_v2(ID3Frame *fr)
 {
@@ -355,13 +404,59 @@ atom_parse(FILE *f)
 }
 
 void
-link_up(char const *fpath, Tags *t)
+link_up(const char *fpath, Tags *t)
 {
+	int err;
+	char *dir = NULL, *track_name = NULL, *new_path = NULL;
+	const char *ext = strrchr(fpath, '.')+1;
 
+	if (!t->title)
+		return;
+
+	// TODO(bp) compilations
+
+	// TODO(bp) disk prefix
+	err = asprintf(&track_name, "%d_%s.%s", t->track, t->title, ext);
+	if (err == -1)
+		goto error; // FIXME(bp) log
+
+	if (t->album) {
+		err = asprintf(&dir, "%s/albums/%s", destd, t->album);
+		if (err == -1)
+			goto error;
+		err = asprintf(&new_path, "%s/%s", dir, track_name);
+		if (err == -1)
+			goto error;
+		err = mkdirr(dir, 0755);
+		if (err)
+			goto error;
+		symlink(fpath, new_path);
+	}
+
+	free(new_path);
+	new_path = NULL;
+
+	if (t->artist && t->album) {
+		err = asprintf(&dir, "%s/artists/%s/%s", destd, t->artist, t->album);
+		if (err == -1)
+			goto error;
+		err = asprintf(&new_path, "%s/%s", dir, track_name);
+		if (err == -1)
+			goto error;
+		err = mkdirr(dir, 0755);
+		if (err)
+			goto error;
+		symlink(fpath, new_path);
+	}
+
+error:
+	free(dir);
+	free(track_name);
+	free(new_path);
 }
 
 int
-check_entry(char const *fpath, const struct stat *sb, int typeflag,
+check_entry(const char *fpath, const struct stat *sb, int typeflag,
 	    struct FTW *ftwbuf)
 {
 	Tags *t = NULL;
@@ -416,6 +511,12 @@ main(int argc, char *const argv[])
 	if (err)
 		die("wordexp(%s): %d\n", MUSIC_DIR, err);
 	startd = strdup(w.we_wordv[0]);
+	wordfree(&w);
+
+	err = wordexp(FARM_DIR, &w, 0);
+	if (err)
+		die("wordexp(%s): %d\n", FARM_DIR, err);
+	destd = strdup(w.we_wordv[0]);
 	wordfree(&w);
 
 	err = nftw(startd, check_entry, 32, 0);
