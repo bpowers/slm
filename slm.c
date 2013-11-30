@@ -253,6 +253,7 @@ id3_decode_frame(ID3Frame *fr)
 	const bool is_unicode = fr->data[0];
 	if (!is_unicode) {
 		memmove(fr->data, fr->data+1, fr->size - 1);
+		fr->data[fr->size-1] = '\0';
 		return;
 	}
 
