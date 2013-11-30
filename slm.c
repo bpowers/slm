@@ -23,6 +23,8 @@
 
 #include "config.h"
 
+bool verbose;
+bool should_hardlink;
 char *argv0;
 char *destd;
 
@@ -431,7 +433,12 @@ link_up(const char *fpath, Tags *t)
 		err = mkdirr(dir, 0755);
 		if (err)
 			goto error;
-		symlink(fpath, new_path);
+		if (should_hardlink)
+			err = link(fpath, new_path);
+		else
+			err = symlink(fpath, new_path);
+	} else if (verbose) {
+		fprintf(stderr, "no album link for %s\n", fpath);
 	}
 
 	free(new_path);
@@ -447,9 +454,13 @@ link_up(const char *fpath, Tags *t)
 		err = mkdirr(dir, 0755);
 		if (err)
 			goto error;
-		symlink(fpath, new_path);
+		if (should_hardlink)
+			err = link(fpath, new_path);
+		else
+			err = symlink(fpath, new_path);
+	} else if (verbose) {
+		fprintf(stderr, "no artist link for %s\n", fpath);
 	}
-
 error:
 	free(dir);
 	free(track_name);
@@ -471,8 +482,11 @@ check_entry(const char *fpath, const struct stat *sb, int typeflag,
 	t = id3_parse(f);
 	if (!t)
 		t = atom_parse(f);
-	if (!t)
+	if (!t) {
+		if (verbose)
+			fprintf(stderr, "no tags for %s\n", fpath);
 		goto out;
+	}
 
 	link_up(fpath, t);
 out:
@@ -484,8 +498,11 @@ out:
 void
 usage(void)
 {
-	die("Usage: %s\n" \
-	    "music statistics\n", argv0);
+	die("Usage: %s [OPTION...]\n" \
+	    "music curation\n\n" \
+	    "Options:\n" \
+	    "  -v:\tVerbose mode\n" \
+	    "  -h:\tUse hardlinks instead of symlinks\n", argv0);
 }
 
 int
@@ -497,8 +514,12 @@ main(int argc, char *const argv[])
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
 		char const* arg = argv[0];
-		if (!strcmp("-help", arg)) {
+		if (strcmp("-help", arg) == 0) {
 			usage();
+		} else if (strcmp("-v", arg) == 0) {
+			verbose = true;
+		} else if (strcmp("-h", arg) == 0) {
+			should_hardlink = true;
 		} else if (arg[0] == '-') {
 			fprintf(stderr, "unknown arg '%s'\n", arg);
 			usage();
