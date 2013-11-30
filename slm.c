@@ -441,6 +441,8 @@ link_up(const char *fpath, Tags *t)
 		fprintf(stderr, "no album link for %s\n", fpath);
 	}
 
+	free(dir);
+	dir = NULL;
 	free(new_path);
 	new_path = NULL;
 
@@ -545,6 +547,7 @@ main(int argc, char *const argv[])
 	if (err)
 		die("nftw(%s)\n", startd);
 
+	free(destd);
 	free(startd);
 	return 0;
 }
