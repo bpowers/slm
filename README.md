@@ -16,7 +16,18 @@ Where `${artist}`, `${album}`, `${tracknumber}`, and `${title}` come
 from the music file's metadata, `${FARM_DIR}` comes from config.h, and
 `${EXT}` comes from the original file.
 
-STATUS
+Usage
+-----
+
+    Usage: slm [OPTION...]
+    music curation
+    
+    Options:
+      -v:	Verbose mode
+      -h:	Use hardlinks instead of symlinks
+
+
+Status
 ------
 
 - ID3 tag reading works correctly for all of my MP3s.
