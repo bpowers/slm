@@ -63,7 +63,6 @@ typedef struct {
 static void die(const char *, ...);
 static void free_tags(Tags *);
 static int mkdirr(const char *, mode_t);
-static bool is_music_file(const char *);
 static size_t utf16to8(char *, void *, size_t, bool);
 
 static ID3Header *id3_header(FILE*);
@@ -136,23 +135,6 @@ mkdirr(const char *path, mode_t mode)
 error:
 	free(dirdup);
 	return -1;
-}
-
-bool
-is_music_file(const char *fpath)
-{
-	char *ext;
-	ext = strrchr(fpath, '.');
-	if (!ext)
-		return false;
-	ext++;
-
-	if (strcmp(ext, "mp3") == 0 ||
-	    strcmp(ext, "m4a") == 0 ||
-	    strcmp(ext, "ogg") == 0 ||
-	    strcmp(ext, "flac") == 0)
-		return true;
-	return false;
 }
 
 // algorithm from go's unicode/utf16 package
@@ -473,8 +455,10 @@ int
 check_entry(const char *fpath, const struct stat *sb, int typeflag,
 	    struct FTW *ftwbuf)
 {
+	struct stat info;
 	Tags *t = NULL;
-	if (!is_music_file(fpath))
+
+	if (stat(fpath, &info) == -1 || !S_ISREG(info.st_mode))
 		return 0;
 
 	FILE *f = fopen(fpath, "r");
